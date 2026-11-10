@@ -1,0 +1,17 @@
+flowchart LR
+  B["Browser<br/>http://localhost:8000"]
+  subgraph HOST["Docker host (localhost)"]
+    direction LR
+    subgraph NET["user-defined network: glowlog-net"]
+      W["web (Flask + Gunicorn)<br/>container port 8000"]
+      D[("db (PostgreSQL 16)<br/>port 5432 internal only")]
+      R[("redis 7.4<br/>port 6379 internal only")]
+      A["adminer (profile: tools)<br/>container port 8080"]
+    end
+    V[["named volume<br/>glowlog-pgdata"]]
+  end
+  B -- "1 HTTP :8000" --> W
+  W -- "2 cache lookup (host: redis)" --> R
+  W -- "3 SQL on MISS / INSERT (host: db)" --> D
+  D --- V
+  A -. "optional http://localhost:8080" .-> D
