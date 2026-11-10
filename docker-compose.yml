@@ -1,0 +1,73 @@
+name: glowlog
+
+services:
+  # ---------- Application (frontend templates + backend API) ----------
+  web:
+    build:
+      context: ./app
+    image: glowlog-web:1.0.0
+    env_file: .env
+    environment:
+      # Service names (Compose DNS) - never IPs or localhost
+      DB_HOST: db
+      REDIS_HOST: redis
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - glowlog-net
+    restart: unless-stopped
+
+  # ---------- PostgreSQL ----------
+  db:
+    image: postgres:16.4-alpine
+    env_file: .env
+    volumes:
+      - glowlog-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    networks:
+      - glowlog-net
+    restart: unless-stopped
+
+  # ---------- Redis cache (BONUS) ----------
+  redis:
+    image: redis:7.4.1-alpine
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - glowlog-net
+    restart: unless-stopped
+
+  # ---------- Adminer: only starts with `--profile tools` ----------
+  adminer:
+    image: adminer:4.8.1
+    profiles: ["tools"]
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    environment:
+      ADMINER_DEFAULT_SERVER: db
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - glowlog-net
+
+volumes:
+  glowlog-pgdata:
+
+networks:
+  glowlog-net:
+    driver: bridge
