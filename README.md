@@ -1,59 +1,58 @@
 # GlowLog — Skincare Routine Tracker
 
-A small multi-tier web app to log skincare products and your **morning / night** routines.
-Built for the Cloud Computing midterm (COMP6991031): the focus is **containerization with Docker Compose** on localhost.
+Aplikasi web multi-tier kecil untuk mencatat produk skincare dan rutinitas **pagi / malam**.
+Dibuat untuk UTS Cloud Computing (COMP6991031). Fokusnya adalah **containerization dengan Docker Compose** di localhost.
 
-> **Author:** `<NAMA>` · `<NIM>` · `<KELAS>`
+> **Penulis:** Ratu Azalea Meiza Asri · 2802551254 · 
 
-## Why this project
+## Latar Belakang Projek
 
-Skincare routines are easy to forget (which serum goes before moisturizer? did I use retinol yesterday?). GlowLog gives a
-simple place to save a routine as an ordered list of products and view it by morning or night.
-I chose it because it is small enough to finish in the exam window, yet it needs every layer I want to practice as a
-Cloud/DevOps engineer: an app container, a stateful database with a volume, a cache, health checks, and env-based config.
+Skincare routine mudah terlupa, produk mana yang dipakai lebih dulu, dan apakah rutinitas itu untuk pagi atau malam. GlowLog menyediakan tempat sederhana untuk menyimpan rutinitas sebagai daftar produk berurutan dan melihatnya berdasarkan waktu pemakaian.
 
-**MVP feature:** add and view routines (morning / night).
+Saya memilih projek ini karena ukurannya kecil, tetapi tetap memuat semua lapisan yang ingin saya pelajari sebagai Cloud/DevOps Engineer: container aplikasi, database dengan volume, cache, healthcheck, dan konfigurasi lewat environment variable. 
 
-## Architecture
+**MVP Feature:** add dan view routines (morning / night).
 
-![architecture](docs/architecture.png)
+## Arsitektur
 
-| Container | Image | Host port | Purpose |
-|-----------|-------|-----------|---------|
-| `web` | built from `app/Dockerfile` | `8000` | Flask + Gunicorn (HTML page + JSON API) |
+![arsitektur](docs/architecture.png)
+
+| Container | Image | Port di host | Fungsi |
+|-----------|-------|--------------|--------|
+| `web` | built from `app/Dockerfile` | `8000` | Flask + Gunicorn (HTML page + API JSON) |
 | `db` | `postgres:16.4-alpine` | none (internal) | PostgreSQL with named volume `glowlog-pgdata` |
 | `redis` | `redis:7.4.1-alpine` | none (internal) | Cache for `GET /api/routines` (**bonus**) |
-| `adminer` | `adminer:4.8.1` | `8080` | DB UI, only with `--profile tools` |
+| `adminer` | `adminer:4.8.1` | `8080` | UI database, only with `--profile tools` |
 
-All containers share the user-defined network `glowlog-net` and reach each other by **service name** (`db`, `redis`).
+Semua container berada di network user-defined `glowlog-net` dan saling terhubung lewat **nama service** (`db`, `redis`).
 
-## Run it (3 commands)
+## Cara menjalankan
 
-Requirements: Docker + Docker Compose v2.
+Prasyarat: Docker dan Docker Compose v2.
 
 ```bash
-git clone <THIS-REPO-URL> glowlog && cd glowlog
-cp .env.example .env            # edit the password if you like
+git clone https://github.com/<USERNAME>/glowlog.git && cd glowlog
+cp .env.example .env            # ubah password bila perlu
 docker compose up -d --build
 ```
 
-Open **http://localhost:8000**.
+Buka **http://localhost:8000**.
 
 ```bash
-docker compose ps                         # all services running, db + redis "healthy"
-docker compose --profile tools up -d      # also start Adminer on http://localhost:8080
-                                          #   System: PostgreSQL · Server: db · user/password/db from .env
-docker compose down                       # stop, KEEP data (named volume stays)
-docker compose down -v                    # stop and DELETE data (removes the volume)
+docker compose ps                         # semua service running, db dan redis "healthy"
+docker compose --profile tools up -d      # jalankan juga Adminer di http://localhost:8080
+                                          #   System: PostgreSQL, Server: db, user/password/db dari .env
+docker compose down                       # hentikan, data TETAP ada (named volume tetap)
+docker compose down -v                    # hentikan dan HAPUS data (volume ikut dihapus)
 ```
 
 ## API
 
-| Method | Path | Success | Errors |
-|--------|------|---------|--------|
-| GET | `/health` | `200` (db + redis ok) | `503` if a dependency is down |
-| GET | `/api/routines?period=morning\|night` | `200` + JSON list, header `X-Cache: HIT/MISS` | `400` bad `period` |
-| POST | `/api/routines` | `201 Created` + `Location` header | `400` validation error |
+| Method | Path | Sukses | Error |
+|--------|------|--------|-------|
+| GET | `/health` | `200` (db dan redis ok) | `503` jika ada dependensi yang mati |
+| GET | `/api/routines?period=morning\|night` | `200` + daftar JSON, header `X-Cache: HIT/MISS` | `400` bila `period` salah |
+| POST | `/api/routines` | `201 Created` + header `Location` | `400` bila validasi gagal |
 
 ```bash
 curl -i http://localhost:8000/health
@@ -63,50 +62,52 @@ curl -i -X POST http://localhost:8000/api/routines \
 curl -i http://localhost:8000/api/routines
 ```
 
-## Bonus: Redis cache (+5)
+## Redis cache 
 
-`GET /api/routines` uses the cache-aside pattern: the first call reads PostgreSQL (`X-Cache: MISS`) and stores the result in
-Redis for `CACHE_TTL_SECONDS`; the next calls are served from Redis (`X-Cache: HIT`). A successful `POST` deletes the cache key
-so data is never stale. Redis has a `redis-cli ping` healthcheck and the `web` service waits for it with
-`depends_on: condition: service_healthy`. If Redis is down the API still works (`X-Cache: BYPASS`).
+`GET /api/routines` memakai pola cache-aside. Panggilan pertama membaca PostgreSQL (`X-Cache: MISS`) lalu menyimpan hasilnya di Redis selama `CACHE_TTL_SECONDS`. Panggilan berikutnya dilayani dari Redis (`X-Cache: HIT`). `POST` yang berhasil menghapus kunci cache agar data tidak basi. Redis punya healthcheck `redis-cli ping`, dan service `web` menunggunya lewat `depends_on: condition: service_healthy`. Jika Redis mati, API tetap berjalan (`X-Cache: BYPASS`).
 
-## Tests
+## Test
 
 ```bash
-docker compose up -d db redis        # needs ports, or run tests inside a container network
 cd app && pip install -r requirements.txt pytest
-DB_HOST=localhost REDIS_HOST=localhost POSTGRES_USER=... POSTGRES_PASSWORD=... POSTGRES_DB=... \
+# butuh PostgreSQL dan Redis yang berjalan; atur DB_HOST, REDIS_HOST, POSTGRES_* sesuai .env
 GLOWLOG_SKIP_INIT=1 pytest -q
 ```
 
-## Security & data
+## Security & Data
 
-* `.env` is git-ignored; only `.env.example` (dummy values) is committed. No secrets in the repo.
-* Only dummy data is used. The app stores no personal data (no NIK, address, phone).
-* The container runs as a non-root user; DB and Redis ports are not published to the host.
+* `.env` masuk `.gitignore`; yang di-commit hanya `.env.example` (nilai dummy). Tidak ada secret di repositori.
+* Hanya data dummy yang dipakai. Aplikasi tidak menyimpan data pribadi (NIK, alamat, nomor telepon).
+* Container berjalan sebagai user non-root, dan port database serta Redis tidak dibuka ke host.
 
-## Sources / credits
+## Sources / Credits
 
-* [Flask](https://flask.palletsprojects.com/), [Gunicorn](https://gunicorn.org/), [psycopg2](https://www.psycopg.org/), [redis-py](https://github.com/redis/redis-py) — open-source libraries.
-* Official Docker images: [postgres](https://hub.docker.com/_/postgres), [redis](https://hub.docker.com/_/redis), [adminer](https://hub.docker.com/_/adminer).
+* [Flask](https://flask.palletsprojects.com/), [Gunicorn](https://gunicorn.org/), [psycopg2](https://www.psycopg.org/), [redis-py](https://github.com/redis/redis-py): library open-source.
+* Image resmi Docker: [postgres](https://hub.docker.com/_/postgres), [redis](https://hub.docker.com/_/redis), [adminer](https://hub.docker.com/_/adminer).
 
-## Screenshots
+## Screenshot
 
-> Replace with your own captures (see `docs/screenshots/`).
+| App Ui | `docker compose ps` |
+|---|---|
+| ![app](docs/screenshots/01-app.png) | ![ps](docs/screenshots/02-compose-ps.png) |
 
-| | |
-|--|--|
-| App UI | `docs/screenshots/01-app.png` |
-| `docker compose ps` | `docs/screenshots/02-compose-ps.png` |
-| curl 200 / 201 | `docs/screenshots/03-curl.png` |
-| Persistence test | `docs/screenshots/04-persistence.png` |
+| Uji curl (200 / 201) | Persistance test |
+|---|---|
+| ![curl](docs/screenshots/03-curl.png) | ![persist](docs/screenshots/04-persistence.png) |
 
 ## Links
 
-* Article: `<LINK-ARTIKEL>`
-* Video demo: `<LINK-YOUTUBE>`
+* Artikel: <LINK ARTIKEL>
+* Video demo: <LINK YOUTUBE>
 
 ## AI Usage Declaration
 
-I used an AI assistant (Claude) to help scaffold the code and draft documentation. I reviewed, ran and tested the code, and I can
-explain every line of the Dockerfile and docker-compose.yml. `<Edit this paragraph so it truthfully reflects what you did.>`
+Selama mengerjakan proses projek ini, saya menggunakan asisten AI (Claude) dalam pengerjaan projek ini untuk:
+
+* membuat konsep ide awal rancangan aplikasi
+* membuat kerangka awal kode aplikasi (Flask), Dockerfile, dan docker-compose.yml;
+* debugging code selama pengerjaan
+* menyusun draf dokumentasi (README, draf artikel, dan kerangka skrip video).
+
+
+Seluruh keputusan akhir dan isi pengumpulan saya periksa sendiri. Saya bertanggung jawab atas seluruh isi projek ini.
